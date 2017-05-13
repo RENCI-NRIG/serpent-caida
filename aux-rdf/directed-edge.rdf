@@ -1,0 +1,41 @@
+<rdf:RDF
+    xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+    xmlns:time="http://www.w3.org/2006/time#"
+    xmlns:owl="http://www.w3.org/2002/07/owl#"
+    xmlns:rdfs="http://www.w3.org/2000/01/rdf-schema#"
+    xmlns:nml="http://schemas.ogf.org/nml/base/2013/02#"
+    xmlns:j.0="http://schemas.ogf.org/nml/bgp/2017/03#"
+    xmlns:xsd="http://www.w3.org/2001/XMLSchema#">
+  <nml:Topology rdf:about="http://code.renci.org/projects/serpent#Topology-my-topology">
+    <nml:hasNode>
+      <nml:Node rdf:about="http://code.renci.org/projects/serpent#Node-2">
+        <nml:hasService>
+          <nml:SwitchingService rdf:about="http://code.renci.org/projects/serpent#NodeSwitchingService-Node-2"/>
+        </nml:hasService>
+      </nml:Node>
+    </nml:hasNode>
+    <nml:hasNode>
+      <nml:Node rdf:about="http://code.renci.org/projects/serpent#Node-1">
+        <nml:hasOutboundPort>
+          <nml:Port rdf:about="http://code.renci.org/projects/serpent#Port-Node-1-Node-2">
+            <j.0:isPPSource>
+              <j.0:PPLink rdf:about="http://code.renci.org/projects/serpent#Link-Node-1-Node-2">
+                <j.0:hasPPSink>
+                  <nml:Port rdf:about="http://code.renci.org/projects/serpent#Port-Node-2-Node-1">
+                    <j.0:isInboundPort rdf:resource="http://code.renci.org/projects/serpent#NodeSwitchingService-Node-2"/>
+                    <j.0:isInboundPort rdf:resource="http://code.renci.org/projects/serpent#Node-2"/>
+                  </nml:Port>
+                </j.0:hasPPSink>
+              </j.0:PPLink>
+            </j.0:isPPSource>
+          </nml:Port>
+        </nml:hasOutboundPort>
+        <nml:hasService>
+          <nml:SwitchingService rdf:about="http://code.renci.org/projects/serpent#NodeSwitchingService-Node-1">
+            <nml:hasOutboundPort rdf:resource="http://code.renci.org/projects/serpent#Port-Node-1-Node-2"/>
+          </nml:SwitchingService>
+        </nml:hasService>
+      </nml:Node>
+    </nml:hasNode>
+  </nml:Topology>
+</rdf:RDF>

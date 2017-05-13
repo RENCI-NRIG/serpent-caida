@@ -1,0 +1,5 @@
+prefix nml: <http://schemas.ogf.org/nml/base/2013/02#>
+prefix bgp: <http://schmas.ogf.org/nml/bgp/2017/03#>
+construct {?x  ?r ?y}
+where {?x ?r ?y .
+  FILTER regex(?r, "nml") }
