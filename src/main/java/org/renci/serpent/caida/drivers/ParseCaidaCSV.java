@@ -1,9 +1,10 @@
 package org.renci.serpent.caida.drivers;
 
+import java.io.BufferedWriter;
 import java.io.File;
-import java.util.HashSet;
+import java.io.FileWriter;
+import java.util.ArrayList;
 import java.util.List;
-import java.util.Set;
 
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.CommandLineParser;
@@ -11,6 +12,7 @@ import org.apache.commons.cli.DefaultParser;
 import org.apache.commons.cli.HelpFormatter;
 import org.apache.commons.cli.Options;
 import org.apache.commons.cli.ParseException;
+import org.apache.jena.ontology.Individual;
 import org.apache.jena.query.ARQ;
 import org.apache.jena.riot.RDFFormat;
 import org.jgrapht.Graph;
@@ -19,7 +21,6 @@ import org.jgrapht.traverse.BreadthFirstIterator;
 import org.renci.serpent.caida.CAIDACSVImporter;
 import org.renci.serpent.caida.SimpleCAIDA;
 import org.renci.serpent.caida.omn.OMNGen;
-import org.renci.serpent.caida.omn.OMNTraversalListener;
 
 public class ParseCaidaCSV {
 	static int maxVertices = 3;
@@ -40,6 +41,50 @@ public class ParseCaidaCSV {
 		return sb.toString();
 	}
 	
+	public static void savePropertyFile(StringBuilder propertyFile, String rdfFileName) {
+		
+		propertyFile.append("\nlabels.list=\\\n");
+		propertyFile.append("http://schemas.ogf.org/nml/base/2013/02#hasOutboundPort,\\\n");
+		propertyFile.append("http://schemas.ogf.org/nml/bgp/2017/03#isInboundPort,\\\n");
+		propertyFile.append("http://schemas.ogf.org/nml/bgp/2017/03#hasCPSink,\\\n");
+		propertyFile.append("http://schemas.ogf.org/nml/bgp/2017/03#isCPSource\n\n");
+		
+		propertyFile.append("\ntypes.list=\\\n");
+		propertyFile.append("http://schemas.ogf.org/nml/base/2013/02#Port,\\\n");
+		propertyFile.append("http://schemas.ogf.org/nml/base/2013/02#Node,\\\n");
+		propertyFile.append("http://schemas.ogf.org/nml/bgp/2017/03#CPLink\n\n");
+		
+		propertyFile.append("facts.file="+ rdfFileName + "\n\n");
+		
+		propertyFile.append("facts.file.syntax=" + format.getLang().getName() + "\n\n");
+		
+		propertyFile.append("constraint=only\n\n");
+		propertyFile.append("type.constraint=only\n\n");
+		
+		propertyFile.insert(0, "# Property file for " + maxVertices + " ASs for datafile " + rdfFileName + "\n\n");
+		
+		String propertyFileName = rdfFolder + "/caida" + maxVertices + ".properties";
+		
+		System.out.println("Saving property file " + propertyFileName);
+		
+		BufferedWriter bw = null;
+		try {
+			File propertyF = new File(propertyFileName);
+			bw = new BufferedWriter(new FileWriter(propertyF));
+			bw.append(propertyFile);
+		} catch (Exception e) {
+			System.err.println("Unable to save file " + propertyFileName);
+		} finally {
+			if (bw != null) {
+				try {
+					bw.close();
+				} catch (Exception e) {
+					;
+				}
+			}
+		}
+	}
+	
 	public static void main(String[] argv) {
 		
 		ARQ.init();
@@ -47,12 +92,16 @@ public class ParseCaidaCSV {
 		CommandLineParser  parser = new DefaultParser();
 		HelpFormatter hf = new HelpFormatter();
 		Options options = new Options();
+		boolean saveProperties = false;
 		
 		options.addOption("n", "nodes", true, "number of ASs to include in the output");
-		options.addOption("f", "format", true, "output format (turtle, n3, n-triples, xml)");
+		options.addOption("f", "format", true, "output format (turtle, n-triples, rdf/xml)");
 		options.addOption("o", "directory", true, "output directory");
 		options.addOption("s", "source", true, "source CAIDA file");
+		options.addOption("p", "props", false, "generate a property file");
 		options.addOption("h", "help", false, "help message, including available output formats");
+		
+		StringBuilder propertyFile = new StringBuilder();
 		
 		try {
 			CommandLine line = parser.parse(options, argv, false);
@@ -81,6 +130,9 @@ public class ParseCaidaCSV {
 			} 
 			if (line.hasOption("s")) {
 				caidaSet = line.getOptionValue("s");
+			}
+			if (line.hasOption("p")) {
+				saveProperties = true;
 			}
 		} catch (ParseException pe) {
 			System.err.println("Unable to parse option: " + pe);
@@ -133,13 +185,15 @@ public class ParseCaidaCSV {
 		
 		BreadthFirstIterator<SimpleCAIDA.Vertex, SimpleCAIDA.Edge> bfi = new BreadthFirstIterator<>(g, root);
 		
-		Set<SimpleCAIDA.Vertex> visited = new HashSet<>();
+		//Set<SimpleCAIDA.Vertex> visited = new HashSet<>();
+		List<SimpleCAIDA.Vertex> visList = new ArrayList<>();
 		int count = 0;
 		// fake traversal to find out which vertices we'll touch
 		while(bfi.hasNext()) {
 			if ((maxVertices > 0) && (count++ == maxVertices)) 
 				break;
-			visited.add(bfi.next());
+			//visited.add(bfi.next());
+			visList.add(bfi.next());
 		}
 		
 		File caidaSetFile = new File(caidaSet);
@@ -150,6 +204,38 @@ public class ParseCaidaCSV {
 		OMNGen omg = new OMNGen();
 		omg.declareDefaultCAIDATopology(caidaSetName);
 		
+		//
+		// new bfs
+		//
+		boolean first = true;
+		for(SimpleCAIDA.Vertex ed: visList) {
+			if (first) {
+				//System.out.println("Root " + ed);
+				propertyFile.append("src.list=\\\nhttp://code.renci.org/projects/serpent#Node-" + ed.getLabel() + "\n\n");
+				propertyFile.append("dest.list=");
+				first = false;
+				continue;
+			}
+			//System.out.println("Destination " + ed);
+			for(int i = 0; i < visList.indexOf(ed); i++) {
+				SimpleCAIDA.Edge e = g.getEdge(visList.get(i), ed);
+				if (e != null) {
+					propertyFile.append("\\\nhttp://code.renci.org/projects/serpent#Node-" + ed.getLabel() + ",");
+					// To and From are reversed for some reason
+					//System.out.println("Add edge from " + e.getTo() + " to " + e.getFrom());
+					Individual to = omg.declareCAIDANode(e.getFrom().getLabel());
+					Individual from = omg.declareCAIDANode(e.getTo().getLabel());
+					omg.declareDirectedCAIDAEdge(from, to, e.getEdgeType());
+					break;
+				}
+			}
+		}
+		// skip the last ','
+		propertyFile.delete(propertyFile.length() - 1, propertyFile.length());
+		propertyFile.append("\n\n");
+		
+		/**
+		// didn't work /ib
 		bfi = new BreadthFirstIterator<>(g, root);
 		bfi.addTraversalListener(new OMNTraversalListener(omg, OMNTraversalListener.OMNFlavor.DIRECTED, visited));
 		
@@ -162,7 +248,8 @@ public class ParseCaidaCSV {
 			
 			System.out.println(nv);
 		}
-
+		**/
+		
 		String extension = null;
 		String filePrefix = rdfFolder + "/" + caidaSetName;
 		String countSuffix = "";
@@ -194,5 +281,10 @@ public class ParseCaidaCSV {
 		}
 		
 		omg.close();
+		
+		// save a property file if needed
+		if (saveProperties) {
+			savePropertyFile(propertyFile, rdfFileName);
+		}
 	}
 }
