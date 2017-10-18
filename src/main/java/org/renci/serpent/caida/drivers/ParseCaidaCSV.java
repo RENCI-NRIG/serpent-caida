@@ -3,7 +3,11 @@ package org.renci.serpent.caida.drivers;
 import java.io.BufferedWriter;
 import java.io.File;
 import java.io.FileWriter;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Iterator;
 import java.util.List;
 
 import org.apache.commons.cli.CommandLine;
@@ -17,13 +21,15 @@ import org.apache.jena.query.ARQ;
 import org.apache.jena.riot.RDFFormat;
 import org.jgrapht.Graph;
 import org.jgrapht.graph.SimpleGraph;
-import org.jgrapht.traverse.BreadthFirstIterator;
 import org.renci.serpent.caida.CAIDACSVImporter;
 import org.renci.serpent.caida.SimpleCAIDA;
 import org.renci.serpent.caida.omn.OMNGen;
 
 public class ParseCaidaCSV {
-	static int maxVertices = 3;
+	private static final String PLAIN_NODE = "Node-";
+	private static final String SERPENT_NODE_NS = "http://code.renci.org/projects/serpent#Node-";
+	static int maxVertices = -1;
+	static int maxDests = -1;
 	static String caidaSet = "/Users/ibaldin/Documents/Projects/SERPENT/CAIDA/20170201.as-rel2.txt";
 	static String rdfFolder = "/Users/ibaldin/Desktop/SERPENT-WORK/CAIDA/";
 	static final String execName = "parseCaidaCSV";
@@ -41,25 +47,71 @@ public class ParseCaidaCSV {
 		return sb.toString();
 	}
 	
-	public static void savePropertyFile(StringBuilder propertyFile, String rdfFileName) {
+	public static List<SimpleCAIDA.Vertex> BFSTraverse(Graph<SimpleCAIDA.Vertex, SimpleCAIDA.Edge> g, SimpleCAIDA.Vertex root, OMNGen omg, int size) {
+		List<SimpleCAIDA.Vertex> bfsqueue = new ArrayList<>();
+		int cnt = 0;
+		int bfsIdx = 0;
 		
-		propertyFile.append("\nlabels.list=\\\n");
-		propertyFile.append("http://schemas.ogf.org/nml/base/2013/02#hasOutboundPort,\\\n");
-		propertyFile.append("http://schemas.ogf.org/nml/bgp/2017/03#isInboundPort,\\\n");
-		propertyFile.append("http://schemas.ogf.org/nml/bgp/2017/03#hasCPSink,\\\n");
-		propertyFile.append("http://schemas.ogf.org/nml/bgp/2017/03#isCPSource\n\n");
+		bfsqueue.add(root);
+		while(cnt < size) {
+			SimpleCAIDA.Vertex parent = null;
+			if (bfsIdx < bfsqueue.size())
+				 parent = bfsqueue.get(bfsIdx++);
+			else 
+				break;
+			for(Iterator<SimpleCAIDA.Edge> it = g.edgesOf(parent).iterator(); it.hasNext();) {
+				SimpleCAIDA.Edge edge = it.next();
+				SimpleCAIDA.Vertex child = edge.getFrom();
+				//System.out.println("Found possible child " + child + " for parent " + parent);
+				if (!bfsqueue.contains(child)) {
+					//System.out.println("Edge: " + parent + " --> " + child);
+					Individual from = omg.declareCAIDANode(parent.getLabel());
+					Individual to = omg.declareCAIDANode(child.getLabel());
+					omg.declareDirectedCAIDAEdge(from, to, edge.getEdgeType());
+					bfsqueue.add(child);
+					cnt++;
+					if (cnt == size)
+						break;
+				}
+			}
+		}
+		return bfsqueue.subList(1, bfsqueue.size());
+	}
+	
+	/**
+	 * 
+	 * @param propertyFile - file to save to
+	 * @param rdfFileName - name of the rdf file (facts.file)
+	 * @param eval - format for evaluation (true) or Tarjan (false)
+	 */
+	public static void savePropertyFile(StringBuilder propertyFile, String rdfFileName, boolean eval) {
 		
-		propertyFile.append("\ntypes.list=\\\n");
-		propertyFile.append("http://schemas.ogf.org/nml/base/2013/02#Port,\\\n");
-		propertyFile.append("http://schemas.ogf.org/nml/base/2013/02#Node,\\\n");
-		propertyFile.append("http://schemas.ogf.org/nml/bgp/2017/03#CPLink\n\n");
+		if (!eval) {
+			propertyFile.append("\nlabels.list=\\\n");
+			propertyFile.append("http://schemas.ogf.org/nml/base/2013/02#hasOutboundPort,\\\n");
+			propertyFile.append("http://schemas.ogf.org/nml/bgp/2017/03#isInboundPort,\\\n");
+			propertyFile.append("http://schemas.ogf.org/nml/bgp/2017/03#hasCPSink,\\\n");
+			propertyFile.append("http://schemas.ogf.org/nml/bgp/2017/03#isCPSource\n\n");
+
+			propertyFile.append("\ntypes.list=\\\n");
+			propertyFile.append("http://schemas.ogf.org/nml/base/2013/02#Port,\\\n");
+			propertyFile.append("http://schemas.ogf.org/nml/base/2013/02#Node,\\\n");
+			propertyFile.append("http://schemas.ogf.org/nml/bgp/2017/03#CPLink\n\n");
+		}
 		
-		propertyFile.append("facts.file="+ rdfFileName + "\n\n");
+		String factsFileVal = rdfFileName;
+		if (eval) {
+			Path factFilePath = Paths.get(rdfFileName);
+			factsFileVal = factFilePath.getFileName().toString();
+		}
+		propertyFile.append("facts.file="+ factsFileVal + "\n\n");
 		
 		propertyFile.append("facts.file.syntax=" + format.getLang().getName() + "\n\n");
 		
-		propertyFile.append("constraint=only\n\n");
-		propertyFile.append("type.constraint=only\n\n");
+		if (!eval) {
+			propertyFile.append("constraint=only\n\n");
+			propertyFile.append("type.constraint=only\n\n");
+		}
 		
 		propertyFile.insert(0, "# Property file for " + maxVertices + " ASs for datafile " + rdfFileName + "\n\n");
 		
@@ -92,13 +144,15 @@ public class ParseCaidaCSV {
 		CommandLineParser  parser = new DefaultParser();
 		HelpFormatter hf = new HelpFormatter();
 		Options options = new Options();
-		boolean saveProperties = false;
+		boolean saveProperties = false, formatEvalProps = false;
 		
 		options.addOption("n", "nodes", true, "number of ASs to include in the output");
 		options.addOption("f", "format", true, "output format (turtle, n-triples, rdf/xml)");
 		options.addOption("o", "directory", true, "output directory");
 		options.addOption("s", "source", true, "source CAIDA file");
-		options.addOption("p", "props", false, "generate a property file");
+		options.addOption("p", "props", false, "generate a Tarjan property file");
+		options.addOption("e", "eval", false, "format properties for evaluator (use with -p to save)");
+		options.addOption("c", "count", true, "number of destinations (defaults to n-1)");
 		options.addOption("h", "help", false, "help message, including available output formats");
 		
 		StringBuilder propertyFile = new StringBuilder();
@@ -115,6 +169,9 @@ public class ParseCaidaCSV {
 			if (line.hasOption("n")) {
 				maxVertices = Integer.parseInt(line.getOptionValue("n"));
 			} 
+			if (line.hasOption("c")) {
+				maxDests = Integer.parseInt(line.getOptionValue("c"));
+			}
 			if (line.hasOption("f")) {
 				boolean set = false;
 				for(RDFFormat f: allowedFormats) {
@@ -133,6 +190,9 @@ public class ParseCaidaCSV {
 			}
 			if (line.hasOption("p")) {
 				saveProperties = true;
+			}
+			if (line.hasOption("e")) {
+				formatEvalProps = true;
 			}
 		} catch (ParseException pe) {
 			System.err.println("Unable to parse option: " + pe);
@@ -158,6 +218,7 @@ public class ParseCaidaCSV {
 			e.printStackTrace();
 		}
 		System.out.println("Graph imported with " + g.vertexSet().size() + " vertices and " + g.edgeSet().size() + " edges");
+		
 		//for (SimpleCAIDAVertex v: g.vertexSet()) {
 		//	System.out.print(v.name + " " );
 		//}
@@ -182,7 +243,9 @@ public class ParseCaidaCSV {
 		System.out.println("There are " + leafASs.size() + " leaf ASs from a total of " + g.vertexSet().size());
 		//pick the last one
 		SimpleCAIDA.Vertex root = leafASs.get(leafASs.size()-1);
-		
+		System.out.println("Root is " + root);
+
+		/**
 		BreadthFirstIterator<SimpleCAIDA.Vertex, SimpleCAIDA.Edge> bfi = new BreadthFirstIterator<>(g, root);
 		
 		//Set<SimpleCAIDA.Vertex> visited = new HashSet<>();
@@ -195,6 +258,7 @@ public class ParseCaidaCSV {
 			//visited.add(bfi.next());
 			visList.add(bfi.next());
 		}
+		**/
 		
 		File caidaSetFile = new File(caidaSet);
 		
@@ -204,13 +268,39 @@ public class ParseCaidaCSV {
 		OMNGen omg = new OMNGen();
 		omg.declareDefaultCAIDATopology(caidaSetName);
 		
+		// for evaluation we don't need full namespace
+		String nodeNs = (formatEvalProps ? PLAIN_NODE : SERPENT_NODE_NS);
+		propertyFile.append("src.list=\\\n" + nodeNs + root.getLabel() + "\n\n");
+		
+		// do home-grown traversal
+		List<SimpleCAIDA.Vertex> dsts = BFSTraverse(g, root, omg, maxVertices);
+		
+		List<SimpleCAIDA.Vertex> realDsts = dsts;
+		
+		// find a random set of maxDests destinations from the list
+		if ((maxDests != -1) && (maxDests <= dsts.size())) {
+			realDsts = new ArrayList<>();
+			for(int i = 0; i < maxDests; i++ ) {
+				Collections.shuffle(dsts);
+				realDsts.add(dsts.remove(0));
+			}
+		} 
+		
+		// generate maxDests destinations (or a full list)
+		propertyFile.append("dest.list=");
+
+		for(SimpleCAIDA.Vertex dst: realDsts) {
+			propertyFile.append("\\\n" + nodeNs + dst.getLabel() + ",");
+		}
+
+		/**
 		//
-		// new bfs
+		// new bfs (also didn't work correctly) /ib
 		//
 		boolean first = true;
 		for(SimpleCAIDA.Vertex ed: visList) {
+			System.out.println("List " + ed);
 			if (first) {
-				//System.out.println("Root " + ed);
 				propertyFile.append("src.list=\\\nhttp://code.renci.org/projects/serpent#Node-" + ed.getLabel() + "\n\n");
 				propertyFile.append("dest.list=");
 				first = false;
@@ -220,6 +310,7 @@ public class ParseCaidaCSV {
 			for(int i = 0; i < visList.indexOf(ed); i++) {
 				SimpleCAIDA.Edge e = g.getEdge(visList.get(i), ed);
 				if (e != null) {
+					System.out.println(e.getFrom().getLabel() + " ---> " + e.getTo().getLabel());
 					propertyFile.append("\\\nhttp://code.renci.org/projects/serpent#Node-" + ed.getLabel() + ",");
 					// To and From are reversed for some reason
 					//System.out.println("Add edge from " + e.getTo() + " to " + e.getFrom());
@@ -230,26 +321,11 @@ public class ParseCaidaCSV {
 				}
 			}
 		}
+		**/
 		// skip the last ','
 		propertyFile.delete(propertyFile.length() - 1, propertyFile.length());
 		propertyFile.append("\n\n");
-		
-		/**
-		// didn't work /ib
-		bfi = new BreadthFirstIterator<>(g, root);
-		bfi.addTraversalListener(new OMNTraversalListener(omg, OMNTraversalListener.OMNFlavor.DIRECTED, visited));
-		
-		System.out.println("Traversing the tree from " + root + " and constructing RDF");
-		count = 0;
-		while(bfi.hasNext()) {
-			if ((maxVertices > 0) && (count++ == maxVertices))
-				break;
-			SimpleCAIDA.Vertex nv= bfi.next();
-			
-			System.out.println(nv);
-		}
-		**/
-		
+
 		String extension = null;
 		String filePrefix = rdfFolder + "/" + caidaSetName;
 		String countSuffix = "";
@@ -270,7 +346,9 @@ public class ParseCaidaCSV {
 			extension = "ttl";
 		}
 		
-		String rdfFileName = filePrefix + countSuffix + "." + extension;
+		String rdfFileName = null;
+		
+		rdfFileName = filePrefix + countSuffix + "." + extension;
 		
 		System.out.println("Saving file in " + rdfFileName + " using " + format);
 		
@@ -284,7 +362,8 @@ public class ParseCaidaCSV {
 		
 		// save a property file if needed
 		if (saveProperties) {
-			savePropertyFile(propertyFile, rdfFileName);
+			savePropertyFile(propertyFile, rdfFileName, formatEvalProps);
 		}
+
 	}
 }
