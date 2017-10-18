@@ -94,6 +94,11 @@
           		<descriptorRefs>
             		<descriptorRef>jar-with-dependencies</descriptorRef>
           		</descriptorRefs>
+			<archive>
+				<manifest>
+					<mainClass>org.renci.serpent.caida.drivers.ParseCaidaCSV</mainClass>
+				</manifest>
+			</archive>
         	</configuration>
         	<executions>
           		<execution>

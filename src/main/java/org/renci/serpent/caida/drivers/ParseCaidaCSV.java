@@ -30,8 +30,8 @@ public class ParseCaidaCSV {
 	private static final String SERPENT_NODE_NS = "http://code.renci.org/projects/serpent#Node-";
 	static int maxVertices = -1;
 	static int maxDests = -1;
-	static String caidaSet = "/Users/ibaldin/Documents/Projects/SERPENT/CAIDA/20170201.as-rel2.txt";
-	static String rdfFolder = "/Users/ibaldin/Desktop/SERPENT-WORK/CAIDA/";
+	static String caidaSet = null;
+	static String rdfFolder = null;
 	static final String execName = "parseCaidaCSV";
 	
 	static final RDFFormat[] allowedFormats = { RDFFormat.TTL, RDFFormat.NTRIPLES, RDFFormat.RDFXML };
@@ -113,9 +113,9 @@ public class ParseCaidaCSV {
 			propertyFile.append("type.constraint=only\n\n");
 		}
 		
-		propertyFile.insert(0, "# Property file for " + maxVertices + " ASs for datafile " + rdfFileName + "\n\n");
+		propertyFile.insert(0, "# Property file for " + maxVertices + " ASs and " + (maxDests == -1 ? "all" : maxDests) + " destinations for datafile " + rdfFileName + "\n\n");
 		
-		String propertyFileName = rdfFolder + "/caida" + maxVertices + ".properties";
+		String propertyFileName = rdfFolder + "/caida" + maxVertices + "-" + (maxDests == -1 ? "all" : maxDests) + ".properties";
 		
 		System.out.println("Saving property file " + propertyFileName);
 		
@@ -205,6 +205,11 @@ public class ParseCaidaCSV {
 		} catch (Exception e) {
 			System.err.println("Unable to parse command line: " + e);
 			hf.printHelp(execName, options);
+			System.exit(255);
+		}
+		
+		if ((caidaSet == null) || (rdfFolder == null)) {
+			System.err.println("You must specify the location of the CAIDA AS REL dataset and the output folder\n");
 			System.exit(255);
 		}
 		
