@@ -7,8 +7,10 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Deque;
 import java.util.HashSet;
 import java.util.Iterator;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.Set;
 
@@ -21,9 +23,12 @@ import org.apache.commons.cli.ParseException;
 import org.apache.jena.ontology.Individual;
 import org.apache.jena.query.ARQ;
 import org.apache.jena.riot.RDFFormat;
+import org.javatuples.Triplet;
 import org.jgrapht.Graph;
+import org.jgrapht.alg.util.Pair;
 import org.jgrapht.graph.SimpleGraph;
 import org.renci.serpent.caida.CAIDACSVImporter;
+import org.renci.serpent.caida.CAIDAImporterBase.EdgeType;
 import org.renci.serpent.caida.SimpleCAIDA;
 import org.renci.serpent.caida.omn.OMNGen;
 
@@ -49,6 +54,14 @@ public class ParseCaidaCSV {
 		return sb.toString();
 	}
 	
+	/**
+	 * Does BFS traversal
+	 * @param g
+	 * @param root
+	 * @param omg
+	 * @param size
+	 * @return
+	 */
 	public static List<SimpleCAIDA.Vertex> BFSTraverse(Graph<SimpleCAIDA.Vertex, SimpleCAIDA.Edge> g, SimpleCAIDA.Vertex root, OMNGen omg, int size) {
 		List<SimpleCAIDA.Vertex> bfsqueue = new ArrayList<>();
 		int cnt = 0;
@@ -85,6 +98,43 @@ public class ParseCaidaCSV {
 			}
 		}
 		return bfsqueue.subList(1, bfsqueue.size());
+	}
+	
+	public static List<SimpleCAIDA.Vertex> DFSTraverse(Graph<SimpleCAIDA.Vertex, SimpleCAIDA.Edge> g, SimpleCAIDA.Vertex root, OMNGen omg, int size) {
+		// first field is node itself, second field is its parent, third is edge type
+		Deque<Triplet<SimpleCAIDA.Vertex, SimpleCAIDA.Vertex, EdgeType>> dfsstack = new LinkedList<>();
+		List<SimpleCAIDA.Vertex> visited = new LinkedList<>();
+		int cnt = 0;
+		
+		dfsstack.push(new Triplet<SimpleCAIDA.Vertex, SimpleCAIDA.Vertex, EdgeType>(root, null, null));
+	
+		while(cnt < size) {
+			Triplet<SimpleCAIDA.Vertex, SimpleCAIDA.Vertex, EdgeType> nodeTriplet = dfsstack.pop();
+			SimpleCAIDA.Vertex child = nodeTriplet.getValue0();
+			
+			if (!visited.contains(child)) {
+				visited.add(child);
+				
+				if (nodeTriplet.getValue1() != null) {
+					Individual from = omg.declareCAIDANode(nodeTriplet.getValue1().getLabel());
+					Individual to = omg.declareCAIDANode(child.getLabel());
+					omg.declareDirectedCAIDAEdge(from, to, nodeTriplet.getValue2());
+				}
+				cnt++;
+				
+				for(Iterator<SimpleCAIDA.Edge> it = g.edgesOf(child).iterator(); it.hasNext();) {
+					SimpleCAIDA.Edge edge = it.next(); 
+					SimpleCAIDA.Vertex childOfChild = edge.getFrom();
+					// figure out which end of the edge we need
+					if (childOfChild == child) 
+						childOfChild = edge.getTo();
+					
+					dfsstack.push(new Triplet<SimpleCAIDA.Vertex, SimpleCAIDA.Vertex, EdgeType>(childOfChild, child, edge.getEdgeType()));
+				}
+			}
+		}
+		
+		return visited.subList(1, visited.size());
 	}
 	
 	/**
@@ -287,7 +337,7 @@ public class ParseCaidaCSV {
 		propertyFile.append("src.list=\\\n" + nodeNs + root.getLabel() + "\n\n");
 		
 		// do home-grown traversal
-		List<SimpleCAIDA.Vertex> dsts = BFSTraverse(g, root, omg, maxVertices);
+		List<SimpleCAIDA.Vertex> dsts = DFSTraverse(g, root, omg, maxVertices);
 		
 		List<SimpleCAIDA.Vertex> realDsts = dsts;
 		
