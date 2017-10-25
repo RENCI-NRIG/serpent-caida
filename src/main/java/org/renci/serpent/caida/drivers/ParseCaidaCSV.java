@@ -7,8 +7,10 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Set;
 
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.CommandLineParser;
@@ -53,16 +55,22 @@ public class ParseCaidaCSV {
 		int bfsIdx = 0;
 		
 		bfsqueue.add(root);
+		
 		while(cnt < size) {
 			SimpleCAIDA.Vertex parent = null;
-			if (bfsIdx < bfsqueue.size())
+			if (bfsIdx < bfsqueue.size()) {
 				 parent = bfsqueue.get(bfsIdx++);
-			else 
+			}
+			else {
 				break;
+			}
 			for(Iterator<SimpleCAIDA.Edge> it = g.edgesOf(parent).iterator(); it.hasNext();) {
 				SimpleCAIDA.Edge edge = it.next();
 				SimpleCAIDA.Vertex child = edge.getFrom();
-				//System.out.println("Found possible child " + child + " for parent " + parent);
+				// figure out which end of the edge we need
+				if (child == parent) 
+					child = edge.getTo();
+
 				if (!bfsqueue.contains(child)) {
 					//System.out.println("Edge: " + parent + " --> " + child);
 					Individual from = omg.declareCAIDANode(parent.getLabel());
@@ -70,8 +78,9 @@ public class ParseCaidaCSV {
 					omg.declareDirectedCAIDAEdge(from, to, edge.getEdgeType());
 					bfsqueue.add(child);
 					cnt++;
-					if (cnt == size)
+					if (cnt == size) {
 						break;
+					}
 				}
 			}
 		}
