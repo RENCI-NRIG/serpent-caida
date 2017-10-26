@@ -8,11 +8,10 @@ import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Deque;
-import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
-import java.util.Set;
+import java.util.Random;
 
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.CommandLineParser;
@@ -25,7 +24,6 @@ import org.apache.jena.query.ARQ;
 import org.apache.jena.riot.RDFFormat;
 import org.javatuples.Triplet;
 import org.jgrapht.Graph;
-import org.jgrapht.alg.util.Pair;
 import org.jgrapht.graph.SimpleGraph;
 import org.renci.serpent.caida.CAIDACSVImporter;
 import org.renci.serpent.caida.CAIDAImporterBase.EdgeType;
@@ -52,6 +50,48 @@ public class ParseCaidaCSV {
 			sb.append(f.getLang().getName());
 		}
 		return sb.toString();
+	}
+	
+	public static List<SimpleCAIDA.Vertex> HybridTraverse(Graph<SimpleCAIDA.Vertex, SimpleCAIDA.Edge> g, SimpleCAIDA.Vertex root, OMNGen omg, int size) {
+		List<SimpleCAIDA.Vertex> bfsqueue = new ArrayList<>();
+		int cnt = 0;
+		int bfsIdx = 0;
+		
+		bfsqueue.add(root);
+		
+		Random gen = new Random();
+		
+		while(cnt < size) {
+			SimpleCAIDA.Vertex parent = null;
+			if (bfsIdx < bfsqueue.size()) {
+				 parent = bfsqueue.get(bfsIdx++);
+			}
+			else {
+				break;
+			}
+			for(Iterator<SimpleCAIDA.Edge> it = g.edgesOf(parent).iterator(); it.hasNext();) {
+				SimpleCAIDA.Edge edge = it.next();
+				SimpleCAIDA.Vertex child = edge.getFrom();
+				// figure out which end of the edge we need
+				if (child == parent) {
+					if (gen.nextInt(100) > 50)
+						child = edge.getTo();
+				}
+
+				if (!bfsqueue.contains(child)) {
+					//System.out.println("Edge: " + parent + " --> " + child);
+					Individual from = omg.declareCAIDANode(parent.getLabel());
+					Individual to = omg.declareCAIDANode(child.getLabel());
+					omg.declareDirectedCAIDAEdge(from, to, edge.getEdgeType());
+					bfsqueue.add(child);
+					cnt++;
+					if (cnt == size) {
+						break;
+					}
+				}
+			}
+		}
+		return bfsqueue.subList(1, bfsqueue.size());
 	}
 	
 	/**
@@ -204,6 +244,7 @@ public class ParseCaidaCSV {
 		HelpFormatter hf = new HelpFormatter();
 		Options options = new Options();
 		boolean saveProperties = false, formatEvalProps = false;
+		int traverseType = 1;
 		
 		options.addOption("n", "nodes", true, "number of ASs to include in the output");
 		options.addOption("f", "format", true, "output format (turtle, n-triples, rdf/xml)");
@@ -213,6 +254,7 @@ public class ParseCaidaCSV {
 		options.addOption("e", "eval", false, "format properties for evaluator (use with -p to save)");
 		options.addOption("c", "count", true, "number of destinations (defaults to n-1)");
 		options.addOption("h", "help", false, "help message, including available output formats");
+		options.addOption("t", "tree", true, "tree type - 1: BFS, 2: DFS, 3: Hybrid");
 		
 		StringBuilder propertyFile = new StringBuilder();
 		
@@ -253,6 +295,11 @@ public class ParseCaidaCSV {
 			if (line.hasOption("e")) {
 				formatEvalProps = true;
 			}
+			if (line.hasOption("t")) {
+				traverseType = Integer.parseInt(line.getOptionValue("t"));
+				if ((traverseType < 1) || (traverseType > 3))
+					throw new Exception("Allowed traverse types are 1, 2 and 3");
+			}
 		} catch (ParseException pe) {
 			System.err.println("Unable to parse option: " + pe);
 			hf.printHelp(execName, options);
@@ -282,24 +329,6 @@ public class ParseCaidaCSV {
 			e.printStackTrace();
 		}
 		System.out.println("Graph imported with " + g.vertexSet().size() + " vertices and " + g.edgeSet().size() + " edges");
-		
-		//for (SimpleCAIDAVertex v: g.vertexSet()) {
-		//	System.out.print(v.name + " " );
-		//}
-		
-//		int i = 10;
-//		for (SimpleCAIDAVertex v: g.vertexSet()) {
-//			if (i-- == 0) 
-//				break;
-//			Set<SimpleCAIDAEdge> edges = g.edgesOf(v);
-//			System.out.println(v + " edges " + edges.size());
-//			int j = 10;
-//			for (SimpleCAIDAEdge e: edges) {
-//				if (j-- == 0)
-//					break;
-//				System.out.println("\t" + e);
-//			}
-//		}
 		
 		// find a leaf node - one that only has CP edges. 
 		List<SimpleCAIDA.Vertex> leafASs = SimpleCAIDA.findCPLeaves(g);
@@ -336,8 +365,18 @@ public class ParseCaidaCSV {
 		String nodeNs = (formatEvalProps ? PLAIN_NODE : SERPENT_NODE_NS);
 		propertyFile.append("src.list=\\\n" + nodeNs + root.getLabel() + "\n\n");
 		
-		// do home-grown traversal
-		List<SimpleCAIDA.Vertex> dsts = DFSTraverse(g, root, omg, maxVertices);
+		List<SimpleCAIDA.Vertex> dsts = null;
+		// do traversal
+		switch(traverseType) {
+		case 1: System.out.println("Running BFS Traverse"); 
+			dsts = BFSTraverse(g, root, omg, maxVertices);
+			break;
+		case 2: System.out.println("Running DFS Traverse"); 
+			dsts = DFSTraverse(g, root, omg, maxVertices);
+			break;
+		case 3: System.out.println("Running Hybrid Traverse"); 
+			dsts = HybridTraverse(g, root, omg, maxVertices);
+		}
 		
 		List<SimpleCAIDA.Vertex> realDsts = dsts;
 		
@@ -357,35 +396,6 @@ public class ParseCaidaCSV {
 			propertyFile.append("\\\n" + nodeNs + dst.getLabel() + ",");
 		}
 
-		/**
-		//
-		// new bfs (also didn't work correctly) /ib
-		//
-		boolean first = true;
-		for(SimpleCAIDA.Vertex ed: visList) {
-			System.out.println("List " + ed);
-			if (first) {
-				propertyFile.append("src.list=\\\nhttp://code.renci.org/projects/serpent#Node-" + ed.getLabel() + "\n\n");
-				propertyFile.append("dest.list=");
-				first = false;
-				continue;
-			}
-			//System.out.println("Destination " + ed);
-			for(int i = 0; i < visList.indexOf(ed); i++) {
-				SimpleCAIDA.Edge e = g.getEdge(visList.get(i), ed);
-				if (e != null) {
-					System.out.println(e.getFrom().getLabel() + " ---> " + e.getTo().getLabel());
-					propertyFile.append("\\\nhttp://code.renci.org/projects/serpent#Node-" + ed.getLabel() + ",");
-					// To and From are reversed for some reason
-					//System.out.println("Add edge from " + e.getTo() + " to " + e.getFrom());
-					Individual to = omg.declareCAIDANode(e.getFrom().getLabel());
-					Individual from = omg.declareCAIDANode(e.getTo().getLabel());
-					omg.declareDirectedCAIDAEdge(from, to, e.getEdgeType());
-					break;
-				}
-			}
-		}
-		**/
 		// skip the last ','
 		propertyFile.delete(propertyFile.length() - 1, propertyFile.length());
 		propertyFile.append("\n\n");
